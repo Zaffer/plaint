@@ -31,12 +31,21 @@
       </svg>
     </button>
     <div id="settings-menu" class="settings-menu" hidden>
-      <button id="btn-dark" class="menu-item">Dark mode</button>
-      <button id="btn-mix" class="menu-item">Mix colours: on</button>
-      <button id="btn-style" class="menu-item">Mix style: colour</button>
-      <button id="btn-fullscreen" class="menu-item">Fullscreen</button>
-      <button id="btn-save" class="menu-item">Save picture</button>
-      <button id="btn-clear" class="menu-item menu-item--danger">Start over</button>
+      <button id="btn-dark" class="menu-item">🌙 Dark mode</button>
+      <button id="btn-fullscreen" class="menu-item">🖥️ Fullscreen</button>
+      <!-- How colours behave where they meet, cycled: none / light / paint.
+           Independent of the colourway below — any tray can be mixed any way. -->
+      <button id="btn-mix" class="menu-item">🔀 Mixing: light</button>
+
+      <div class="menu-sep" aria-hidden="true"></div>
+      <div class="menu-cap" aria-hidden="true">Colours</div>
+      <!-- One row per colourway, filled in by app.js from PALETTES so the dots
+           on each row are always that set's actual pigments. -->
+      <div id="menu-sets" class="menu-sets" role="radiogroup" aria-label="Colours"></div>
+      <div class="menu-sep" aria-hidden="true"></div>
+
+      <button id="btn-save" class="menu-item">💾 Save picture</button>
+      <button id="btn-clear" class="menu-item menu-item--danger">🗑️ Start over</button>
     </div>
   </div>
 
@@ -78,13 +87,10 @@
            is a real pigment and mixes like one: black shades a colour, white
            tints it, which is the pair the palette was missing. -->
       <button class="swatch swatch--contrast" data-contrast data-color="#000000" style="--c:#000000" role="radio" aria-checked="false" aria-label="Black"></button>
-      <!-- The red is a crimson: warm orange-reds mix to mud with blue under
-           pigment mixing, crimson gives a real purple (same reason paint
-           sets include crimson). -->
-      <button class="swatch is-active" data-color="#e0356b" style="--c:#e0356b" role="radio" aria-checked="true" aria-label="Red"></button>
-      <button class="swatch" data-color="#f1c40f" style="--c:#f1c40f" role="radio" aria-checked="false" aria-label="Yellow"></button>
-      <button class="swatch" data-color="#2ca24a" style="--c:#2ca24a" role="radio" aria-checked="false" aria-label="Green"></button>
-      <button class="swatch" data-color="#2b6fe5" style="--c:#2b6fe5" role="radio" aria-checked="false" aria-label="Blue"></button>
+      <!-- The pigments in between are rendered here by app.js from the chosen
+           colourway — see PALETTES, which carries the reasoning for each set.
+           Only the contrast pigment and the eraser are fixed, because those two
+           belong to every set. -->
       <button class="swatch swatch--eraser" data-eraser role="radio" aria-checked="false" aria-label="Eraser">🧹</button>
     </div>
     <div class="slider">

@@ -99,7 +99,10 @@ body {
   position: fixed;
   top: calc(env(safe-area-inset-top, 0px) + 16px);
   left: calc(env(safe-area-inset-left, 0px) + 16px);
-  z-index: 10;
+  /* Above the toolbar, not level with it: the menu is long enough to reach the
+     panel, and a lifted panel comes up to meet it. Level pegging let the toolbar
+     win on document order and swallow the last item or two. */
+  z-index: 12;
 }
 
 .icon-btn {
@@ -137,6 +140,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Seven colourways make this taller than a short screen in landscape. Scroll
+     inside rather than run off the bottom; the touchmove guard already lets
+     gestures through inside #settings, and `contain` stops a flick at the end
+     of the list carrying on into the page behind. */
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
@@ -163,6 +173,73 @@ body {
 
 .menu-item--danger {
   color: var(--danger);
+}
+
+/* --- Colourways in the menu --------------------------------------------- */
+
+.menu-sep {
+  height: 1px;
+  background: rgba(128, 128, 128, 0.25);
+  margin: 6px 12px;
+}
+
+.menu-cap {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--menu-text);
+  opacity: 0.55;
+  padding: 2px 18px 4px;
+}
+
+.menu-sets {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Shorter than a menu item, and wearing its own pigments: a colourway is a set
+   of colours, so the row is the colours rather than a word for them. */
+.menu-set {
+  border: none;
+  background: transparent;
+  border-radius: 12px;
+  padding: 9px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--menu-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-set:active {
+  background: rgba(128, 128, 128, 0.18);
+}
+
+.menu-set-strip {
+  display: flex;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.menu-set-strip i {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--c);
+  /* A rim, so a pale pastel or a full white still reads as a disc on the menu. */
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+/* A colourway is a choice, not a command, so the one in force stays lit rather
+   than only reading right the moment it is pressed. */
+.menu-set[aria-checked="true"] {
+  background: rgba(128, 128, 128, 0.18);
 }
 
 /* --- Toolbar (colours + size) ------------------------------------------ */
@@ -348,12 +425,20 @@ body {
     font-size 0.16s ease;
 }
 
+/* Unlike the others this one does not grow when it is the live tool: being big
+   means "armed and waiting", so once it has a colour it shrinks back and just
+   holds it. The active ring off .swatch still says it is the tool in hand. */
 .swatch--pick.is-active {
-  font-size: 30px;
+  width: 30px;
+  height: 30px;
+  font-size: 18px;
 }
 
-/* Armed and waiting for you to touch a colour. */
+/* Armed and waiting for you to touch a colour — the one state worth the size. */
 .swatch--pick.is-picking {
+  width: 64px;
+  height: 64px;
+  font-size: 30px;
   animation: pick-pulse 1.1s ease-in-out infinite;
 }
 

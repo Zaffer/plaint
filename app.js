@@ -12,7 +12,15 @@
      - instant dark mode (recolour the CSS paper, drawing untouched),
      - a clean resize (we never repaint a background into the bitmap).
 
-   Colour mixing (menu toggle, default on): strokes behave like real paint
+   Two menu settings, deliberately independent of one another. The colourway is
+   which four pigments are in the tray — Poster, Crayon, Pastel, Water, Oil, Ink
+   or Screen, each the limited palette of the medium it is named for (see
+   PALETTES). The mixing model is what happens where two colours meet: none,
+   light or paint (see MIXES). Any tray can be mixed any way, which is the point
+   of splitting them: watercolour pigments laid down flat, or crayon worked like
+   oil paint, are both things worth being able to try.
+
+   Colour mixing (the "light" and "paint" models): strokes behave like real paint
    rather than opaque ink. New paint is mixed into whatever is already on the
    paper with pigment mixing — Mixbox (CC BY-NC, see THIRD-PARTY-NOTICES.md)
    when present, else spectral.js (MIT) — so blue + red makes purple, blue +
@@ -51,11 +59,11 @@
 (() => {
   "use strict";
 
-  // Two pigment engines, picked by the "Mix style" menu item: "colour" is
-  // Mixbox (vivid — mixes stay close to the raw RGB swatches), "paint" is
-  // spectral.js (softer, how real paint actually behaves). Neither loading
-  // must never kill drawing — we just fall back to plain opaque strokes and
-  // hide the menu toggles.
+  // Two pigment engines, chosen by the mixing model (see MIXES): Mixbox is vivid,
+  // its mixes staying close to the raw swatches, and spectral.js is softer and
+  // closer to how real paint behaves. Neither loading must never kill drawing —
+  // we just fall back to plain opaque strokes and hide the kinds that needed
+  // the missing one.
   const hasMixbox = typeof mixbox !== "undefined";
   const hasSpectral = typeof spectral !== "undefined";
   const canMix = hasMixbox || hasSpectral;
@@ -713,11 +721,15 @@
 
   // --- Tool selection ----------------------------------------------------
 
-  const swatches = document.querySelectorAll(".swatch");
   const pickBtn = document.getElementById("btn-pick");
   const contrastSwatch = document.querySelector("[data-contrast]");
+  const eraserSwatch = document.querySelector("[data-eraser]");
   let activeSwatch = document.querySelector(".swatch.is-active");
   let picked = null; // the last colour lifted with the eyedropper
+
+  // Rebuilt whenever the paint kind changes, so it is asked for rather than
+  // held: a stale list would still be pointing at the tray we just threw out.
+  const allSwatches = () => document.querySelectorAll(".swatch");
 
   // The contrast pigment follows the paper: black to draw on a light one, white
   // on a dark one. Only the tool changes — paint already down keeps the colour
@@ -741,7 +753,7 @@
   function selectSwatch(btn) {
     if (btn === activeSwatch) return;
     activeSwatch = btn;
-    swatches.forEach((b) => {
+    allSwatches().forEach((b) => {
       const on = b === btn;
       b.classList.toggle("is-active", on);
       // The four colours and the eraser are a radiogroup; the eyedropper lives
@@ -763,16 +775,282 @@
       tool.color = btn.dataset.color;
     }
     syncAmountUi(); // the knob's disc is in the colour, so it follows it
+    saveSelection();
+  }
+
+  // Which swatch is in hand, as something that survives the tray being rebuilt
+  // and the page being closed: a slot number for the pigments, a name for the
+  // three that belong to every set.
+  const kindSwatches = () => [...document.querySelectorAll("[data-kind-swatch]")];
+
+  function selectionId(b) {
+    if (!b) return null;
+    if (b === pickBtn) return "pick";
+    if (b === eraserSwatch) return "eraser";
+    if (b === contrastSwatch) return "contrast";
+    const i = kindSwatches().indexOf(b);
+    return i >= 0 ? "slot:" + i : null;
+  }
+
+  function swatchFor(id) {
+    if (id === "pick") return picked ? pickBtn : null; // nothing to hold yet
+    if (id === "eraser") return eraserSwatch;
+    if (id === "contrast") return contrastSwatch;
+    if (id && id.startsWith("slot:")) return kindSwatches()[Number(id.slice(5))];
+    return null;
+  }
+
+  function saveSelection() {
+    try {
+      const id = selectionId(activeSwatch);
+      if (id) localStorage.setItem("colour-selection", id);
+      if (picked) localStorage.setItem("colour-picked", picked);
+    } catch (_) {}
+  }
+
+  // Force a re-select even when the button is already the active one, which it
+  // can be after a rebuild handed us a fresh element in the same slot.
+  function reselect(btn) {
+    if (!btn) return;
+    activeSwatch = null;
+    selectSwatch(btn);
   }
 
   // Pointers are routed (see below), so this is only for keyboard and assistive
-  // tech, where a swatch is just a radio button.
-  swatches.forEach((btn) =>
-    btn.addEventListener("click", () => {
-      selectSwatch(btn);
-      if (btn === pickBtn) armPick();
-    })
-  );
+  // tech, where a swatch is just a radio button. Delegated rather than bound per
+  // button, because the colour swatches are thrown away and rebuilt every time
+  // the paint kind changes.
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest && e.target.closest(".swatch");
+    if (!btn) return;
+    selectSwatch(btn);
+    if (btn === pickBtn) togglePick();
+  });
+
+  // --- Colourways --------------------------------------------------------
+
+  // A tray of pigment named for the medium it comes from, and nothing to do with
+  // how it will be mixed — that is picked separately, so any set can be mixed
+  // any way. Each holds the four hues a limited palette in that medium actually
+  // reaches for. Black and white are not among them: the contrast pigment
+  // already supplies whichever of the two reads against the paper, and every
+  // real limited palette treats them as separate from the colours anyway.
+  //
+  // Four hues rather than a painter's literal three (a red, a yellow, a blue,
+  // and mix the rest) because a child who wants green wants it now, not after a
+  // lesson in mixing. Each entry is [hex, what a child calls it, what it is].
+  const PALETTES = {
+    // This app's own, and the default. Flat, bright and cheerful, the way school
+    // poster paint is. The red is a rose crimson: warm orange-reds mix to mud
+    // with blue under pigment mixing, crimson gives a real purple.
+    poster: {
+      label: "Poster",
+      colors: [
+        ["#e0356b", "Red", "Rose crimson"],
+        ["#f1c40f", "Yellow", "Chrome yellow"],
+        ["#2ca24a", "Green", "Emerald"],
+        ["#2b6fe5", "Blue", "Brilliant blue"],
+      ],
+    },
+    // Crayola's own values for three of the four — the colours most children
+    // meet first. Their yellow proper is too pale to read on white paper, so
+    // this is Sunglow, the next one along in the box.
+    crayon: {
+      label: "Crayon",
+      colors: [
+        ["#ee204d", "Red", "Crayola red"],
+        ["#ffcf48", "Yellow", "Sunglow"],
+        ["#1cac78", "Green", "Crayola green"],
+        ["#1f75fe", "Blue", "Crayola blue"],
+      ],
+    },
+    // Soft chalk pastel: pigment cut with white filler, so everything arrives
+    // already tinted. High value, low chroma, and it stays that way — the one
+    // set here that cannot be pushed dark.
+    pastel: {
+      label: "Pastel",
+      colors: [
+        ["#ef8fa8", "Red", "Rose tint"],
+        ["#f7d774", "Yellow", "Naples yellow"],
+        ["#8fcfa8", "Green", "Celadon"],
+        ["#94a8e0", "Blue", "Periwinkle"],
+      ],
+    },
+    // The classic transparent watercolour four. Duller in the tray than anything
+    // else here, because a watercolour's brilliance comes from the paper showing
+    // through it rather than from the pigment itself.
+    water: {
+      label: "Water",
+      colors: [
+        ["#c9184a", "Red", "Alizarin crimson"],
+        ["#f4c430", "Yellow", "Aureolin"],
+        ["#4c9a56", "Green", "Sap green"],
+        ["#3f5fbf", "Blue", "Ultramarine"],
+      ],
+    },
+    // The cadmium-led opaque palette an oil painter squeezes out: dense, buttery
+    // colour that covers whatever is under it. Viridian rather than a bright
+    // green, because that is the green that actually comes in the box.
+    oil: {
+      label: "Oil",
+      colors: [
+        ["#e23d28", "Red", "Cadmium red"],
+        ["#fdbe02", "Yellow", "Cadmium yellow"],
+        ["#40826d", "Green", "Viridian"],
+        ["#33459e", "Blue", "French ultramarine"],
+      ],
+    },
+    // Drawing ink: dye rather than ground pigment, so it goes down deeper and
+    // more saturated than paint can, and dries almost black at full strength.
+    ink: {
+      label: "Ink",
+      colors: [
+        ["#a61c3c", "Red", "Carmine"],
+        ["#d99000", "Yellow", "Amber"],
+        ["#0f6e4c", "Green", "Bottle green"],
+        ["#1b3b8b", "Blue", "Indigo"],
+      ],
+    },
+    // Not a pigment at all: the primaries a display emits, at full gamut. They
+    // are brighter than any paint can be and mix like nothing in the real world,
+    // which is exactly the point of having them here.
+    screen: {
+      label: "Screen",
+      colors: [
+        ["#ff0000", "Red", "Full red"],
+        ["#ffff00", "Yellow", "Full yellow"],
+        ["#00ff00", "Green", "Full green"],
+        ["#0000ff", "Blue", "Full blue"],
+      ],
+    },
+  };
+
+  // Roughly the order a child meets them, with the one that is not paint last.
+  const PALETTE_ORDER = [
+    "poster",
+    "crayon",
+    "pastel",
+    "water",
+    "oil",
+    "ink",
+    "screen",
+  ];
+
+  const setsBox = document.getElementById("menu-sets");
+  let paletteKey = "poster";
+
+  function renderSwatches(key) {
+    for (const b of document.querySelectorAll("[data-kind-swatch]")) b.remove();
+    const frag = document.createDocumentFragment();
+    for (const [c, name, pigment] of PALETTES[key].colors) {
+      const b = document.createElement("button");
+      b.className = "swatch";
+      b.dataset.kindSwatch = "";
+      b.dataset.color = c;
+      b.style.setProperty("--c", c);
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", "false");
+      // The plain colour name for the child using it, the pigment for whoever
+      // wonders why this red is not that red.
+      b.setAttribute("aria-label", name);
+      b.title = pigment;
+      frag.appendChild(b);
+    }
+    eraserSwatch.before(frag);
+  }
+
+  // One row per set, each wearing its own pigments: a colourway is a set of
+  // colours, so the row is the colours rather than a word for them.
+  function renderPaletteMenu() {
+    for (const key of PALETTE_ORDER) {
+      const b = document.createElement("button");
+      b.className = "menu-set";
+      b.dataset.set = key;
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", "false");
+
+      const name = document.createElement("span");
+      name.textContent = PALETTES[key].label;
+      const strip = document.createElement("span");
+      strip.className = "menu-set-strip";
+      strip.setAttribute("aria-hidden", "true");
+      for (const [c] of PALETTES[key].colors) {
+        const dot = document.createElement("i");
+        dot.style.setProperty("--c", c);
+        strip.appendChild(dot);
+      }
+
+      b.append(name, strip);
+      // Deliberately leaves the menu open: picking a colourway is something you
+      // do by eye, and the tray behind the menu changes as you go down the list.
+      b.addEventListener("click", () => applyPalette(key));
+      setsBox.appendChild(b);
+    }
+  }
+
+  function applyPalette(key) {
+    // Which slot is in hand, read before the tray it belongs to is thrown out.
+    const slot = kindSwatches().indexOf(activeSwatch);
+    paletteKey = key;
+    renderSwatches(key);
+    setsBox.querySelectorAll("[data-set]").forEach((b) =>
+      b.setAttribute("aria-checked", String(b.dataset.set === key))
+    );
+    // Hold the slot, not the button: on the yellow in Poster and switching to
+    // Ink puts you on Ink's yellow, so flipping down the list compares the same
+    // pigment across sets rather than dumping you back on the first one. The
+    // contrast pigment, the eraser and the eyedropper are in every set, so a
+    // hand on one of those is left where it is.
+    const fresh = kindSwatches();
+    if (slot >= 0) reselect(fresh[slot] || fresh[0]);
+    else if (!activeSwatch || !document.contains(activeSwatch)) {
+      reselect(fresh[0]);
+    }
+    try {
+      localStorage.setItem("colour-palette", key);
+    } catch (_) {}
+  }
+
+  // --- Mixing model ------------------------------------------------------
+
+  // How two colours behave when they meet, cycled by one menu item. Independent
+  // of the colourway: the same tray can be laid down flat, or mixed either way.
+  const MIXES = {
+    none: { mixing: false, engine: null }, // opaque — the top colour simply wins
+    light: { mixing: true, engine: "mixbox" }, // vivid, close to the raw swatches
+    paint: { mixing: true, engine: "spectral" }, // softer, how real paint behaves
+  };
+  const MIX_ORDER = ["none", "light", "paint"];
+
+  // A model whose engine never loaded cannot be offered; "none" always can.
+  const mixAvailable = (k) =>
+    !!MIXES[k] &&
+    (!MIXES[k].engine ||
+      (MIXES[k].engine === "mixbox" ? hasMixbox : hasSpectral));
+
+  const mixBtn = document.getElementById("btn-mix");
+  let mixKey = "light";
+
+  function applyMix(key) {
+    mixKey = key;
+    const m = MIXES[key];
+    tool.mixing = m.mixing;
+    if (m.engine) engine = m.engine;
+    // The tables cache mixes by pigment index under whichever engine made them,
+    // so they have to go or the old engine's answers would be replayed.
+    resetPigments();
+    mixBtn.textContent = "🔀 Mixing: " + key;
+    try {
+      localStorage.setItem("colour-mix", key);
+    } catch (_) {}
+  }
+
+  mixBtn.addEventListener("click", () => {
+    const avail = MIX_ORDER.filter(mixAvailable);
+    applyMix(avail[(avail.indexOf(mixKey) + 1) % avail.length]);
+  });
+  // Nothing to cycle through with only one model left standing.
+  if (MIX_ORDER.filter(mixAvailable).length < 2) mixBtn.hidden = true;
 
   // Pen-size slider. The thumb's own size tracks the pen size so you can see
   // how big the pen is (16px .. 44px thumb across the 4 .. 80 pen range).
@@ -788,7 +1066,22 @@
     // Its centre reaches the rims: 0% at min, 100% at max.
     knob.style.left = (t * 100).toFixed(2) + "%";
   }
-  sizeInput.addEventListener("input", syncSize);
+
+  // Remembered like the amount it shares a slider with, but saved from the two
+  // places a hand actually moves it rather than from syncSize — which also runs
+  // at load, where it would write the default straight over what we came to
+  // restore. setSizeFromPointer stops early when the whole number has not
+  // moved, so a drag across the track writes once per step, not once per frame.
+  function saveSize() {
+    try {
+      localStorage.setItem("colour-size", String(tool.size));
+    } catch (_) {}
+  }
+
+  sizeInput.addEventListener("input", () => {
+    syncSize();
+    saveSize();
+  });
   syncSize();
 
   // A press never reaches the range input (it is captured elsewhere — see
@@ -805,6 +1098,7 @@
     if (v === Number(sizeInput.value)) return;
     sizeInput.value = v;
     syncSize();
+    saveSize();
   }
 
   // Paint amount is the slider's second axis, read straight off the pointer's y
@@ -882,6 +1176,14 @@
     pickBtn.setAttribute("aria-label", "Pick a colour");
   }
 
+  // Pressing it is how you arm it, and pressing it again is how you change your
+  // mind: disarming keeps whatever colour it is already holding, so a press you
+  // did not mean to make costs nothing.
+  function togglePick() {
+    if (tool.picking) disarmPick();
+    else armPick();
+  }
+
   const rgbOf = (s) => {
     const m = /(-?[\d.]+)\D+(-?[\d.]+)\D+(-?[\d.]+)/.exec(s || "");
     return m ? [+m[1], +m[2], +m[3]] : null;
@@ -947,6 +1249,7 @@
     tool.erasing = false;
     selectSwatch(pickBtn); // no-op once it is already the live tool
     syncAmountUi(); // ...so nudge the knob for the colour-only case
+    saveSelection(); // ...and record the colour, which selectSwatch just skipped
   }
 
   // --- Stowing the toolbar, revealing the palette ------------------------
@@ -1224,7 +1527,13 @@
     }
     if (hit.kind === "swatch") {
       selectSwatch(hit.el);
-      if (hit.el === pickBtn) armPick();
+      // At most once per press. selectSwatch is idempotent and this is not: a
+      // drag that settles on the eyedropper would otherwise arm and disarm it
+      // once a frame for as long as the finger sat there.
+      if (hit.el === pickBtn && !sess.pickToggled) {
+        sess.pickToggled = true;
+        togglePick();
+      }
     } else if (hit.kind === "slider") {
       // Both axes, both absolute: size from x, paint amount from y.
       setSizeFromPointer(e.clientX);
@@ -1281,6 +1590,7 @@
 
     const sess = {
       touch: e.pointerType === "touch",
+      pickToggled: false,
       drag: null,
       picking: false,
       surface: null,
@@ -1364,7 +1674,7 @@
   const themeMeta = document.getElementById("theme-color");
   function applyTheme(dark) {
     document.body.classList.toggle("dark", dark);
-    darkBtn.textContent = dark ? "Light mode" : "Dark mode";
+    darkBtn.textContent = dark ? "☀️ Light mode" : "🌙 Dark mode";
     applyContrast(dark);
     // Literals, not read from the CSS: keep them in step with --bg by hand.
     themeMeta.setAttribute("content", dark ? "#0e0f11" : "#f5f1e9");
@@ -1376,40 +1686,6 @@
     openMenu(false);
     applyTheme(!document.body.classList.contains("dark"));
   });
-
-  // Paint mixing — on by default, remembered like the theme. Only affects
-  // strokes started after the switch; the picture itself is untouched.
-  const mixBtn = document.getElementById("btn-mix");
-  function applyMixing(on) {
-    tool.mixing = on;
-    mixBtn.textContent = on ? "Mix colours: on" : "Mix colours: off";
-    try {
-      localStorage.setItem("colour-mixing", on ? "on" : "off");
-    } catch (_) {}
-  }
-  mixBtn.addEventListener("click", () => {
-    applyMixing(!tool.mixing);
-  });
-  if (!canMix) mixBtn.hidden = true;
-
-  // Mix style — "colour" (Mixbox: vivid, close to the swatch colours) vs
-  // "paint" (spectral.js: softer, like actual paint). Only offered when both
-  // engines loaded; the pigment tables are dropped so the change takes effect
-  // at once rather than replaying the old engine's cached mixes.
-  const styleBtn = document.getElementById("btn-style");
-  function applyStyle(style) {
-    engine = style === "paint" ? "spectral" : "mixbox";
-    styleBtn.textContent =
-      style === "paint" ? "Mix style: paint" : "Mix style: colour";
-    resetPigments();
-    try {
-      localStorage.setItem("colour-mix-style", style);
-    } catch (_) {}
-  }
-  styleBtn.addEventListener("click", () => {
-    applyStyle(engine === "mixbox" ? "paint" : "colour");
-  });
-  if (!(hasMixbox && hasSpectral)) styleBtn.hidden = true;
 
   document.getElementById("btn-fullscreen").addEventListener("click", () => {
     openMenu(false);
@@ -1487,11 +1763,14 @@
   } catch (_) {}
   applyTheme(savedTheme === "dark");
 
-  let savedMixing = "on";
+  let savedSize = 0;
   try {
-    savedMixing = localStorage.getItem("colour-mixing") || "on";
+    savedSize = Number(localStorage.getItem("colour-size")) || 0;
   } catch (_) {}
-  applyMixing(savedMixing !== "off");
+  if (savedSize >= Number(sizeInput.min) && savedSize <= Number(sizeInput.max)) {
+    sizeInput.value = savedSize;
+  }
+  syncSize();
 
   let savedAmount = 0;
   try {
@@ -1500,15 +1779,59 @@
   if (savedAmount) amountInput.value = snapAmount(savedAmount);
   syncAmount(); // also paints the knob for the first time
 
-  let savedStyle = "colour";
+  // Read before applyPalette runs: its own opening selection would overwrite
+  // the very entry we are about to restore from.
+  let savedSelection = null;
   try {
-    savedStyle = localStorage.getItem("colour-mix-style") || "colour";
+    savedSelection = localStorage.getItem("colour-selection");
+    const hex = localStorage.getItem("colour-picked");
+    if (hex && /^#[0-9a-f]{6}$/i.test(hex)) {
+      picked = hex;
+      pickBtn.style.setProperty("--c", hex);
+    }
   } catch (_) {}
-  // With only one engine loaded there is nothing to choose: `engine` is already
-  // whichever of the two turned up.
-  if (hasMixbox && hasSpectral) {
-    applyStyle(savedStyle === "paint" ? "paint" : "colour");
+
+  let savedMix = null;
+  let savedPalette = null;
+  try {
+    savedMix = localStorage.getItem("colour-mix");
+    savedPalette = localStorage.getItem("colour-palette");
+    // Nobody should come back to different paint than they left, so the two
+    // shapes this setting has already had are read forward into the new pair.
+    if (!savedMix || !savedPalette) {
+      const oldKind = localStorage.getItem("colour-paint"); // the one-item form
+      const oldMixing = localStorage.getItem("colour-mixing"); // the two-switch form
+      const oldStyle = localStorage.getItem("colour-mix-style");
+      const was =
+        oldKind === "oil"
+          ? ["none", "screen"]
+          : oldKind === "water"
+          ? ["paint", "water"]
+          : oldKind === "light"
+          ? ["light", "poster"]
+          : oldMixing === "off"
+          ? ["none", "screen"]
+          : oldStyle === "paint"
+          ? ["paint", "poster"]
+          : oldMixing || oldStyle
+          ? ["light", "poster"]
+          : null;
+      if (was) {
+        savedMix = savedMix || was[0];
+        savedPalette = savedPalette || was[1];
+      }
+    }
+  } catch (_) {}
+  // Falling back down the list rather than to a fixed default, so a build with
+  // mixbox.js deleted still boots into something that mixes.
+  if (!mixAvailable(savedMix)) {
+    savedMix = ["light", "paint", "none"].find(mixAvailable);
   }
+  if (!PALETTES[savedPalette]) savedPalette = "poster";
+  applyMix(savedMix);
+  renderPaletteMenu(); // the rows have to exist before one can be marked
+  applyPalette(savedPalette); // opens on the first pigment...
+  reselect(swatchFor(savedSelection)); // ...unless we left holding another
 
   // The palette is sized from the toolbar, so it has to be re-matched before
   // anything is measured off it; a stowed panel is placed from its own height
