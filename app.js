@@ -44,6 +44,11 @@
    Both are instances of `createSurface`; all they share is the pigment tables,
    which are keyed by colour and so belong to neither.
 
+   Both surfaces are kept between visits, as PNG blobs in IndexedDB, written a
+   moment after the last stroke settles. The settings live in localStorage; the
+   pictures do not, because a canvas is a Blob and localStorage only holds
+   strings. See "Keeping the picture".
+
    Multi-touch: every pointer gets its own stroke, so a whole hand — or two
    children — can draw at once, each finger keeping the colour and size it
    started with. A pen takes over when it lands: touches are ignored while it
@@ -210,7 +215,7 @@
   // needs, the strokes currently live on it, its own device scale and its own
   // session amounts. The board and the palette are two of these and share
   // nothing mutable, so a finger mixing paint on one cannot disturb the other.
-  function createSurface(canvas) {
+  function createSurface(canvas, storeKey) {
     const ctx = canvas.getContext("2d", { alpha: true });
 
     // Offscreen buffers for paint mixing. `mask` collects the in-progress
@@ -435,6 +440,10 @@
       strokes.delete(id);
       if (metered(s)) flushStroke(s);
       endMixSessionIfIdle();
+      // Nothing left on this surface: what is on it now is final, so it is worth
+      // keeping. Every stroke ends somewhere, which makes this the one place the
+      // canvas is reliably settled.
+      if (!strokes.size) surfaceSettled(storeKey);
     }
 
     function dropAllStrokes() {
@@ -505,6 +514,23 @@
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+      // Starting over has to reach the saved copy too, or the picture would be
+      // back on the next visit.
+      surfaceSettled(storeKey);
+    }
+
+    // Put a saved bitmap back, *underneath* whatever is on the canvas already.
+    // Reading it is asynchronous, and a child who starts drawing in the moment
+    // that takes keeps the stroke they just made. The image carries its own
+    // pixel size, so it goes down 1:1 from the top-left exactly the way a resize
+    // replays a bitmap — a device that came back at a different scale crops or
+    // leaves bare paper rather than blurring what was there.
+    function restoreUnder(img) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = "destination-over";
+      ctx.drawImage(img, 0, 0);
       ctx.restore();
     }
 
@@ -713,11 +739,149 @@
       paint,
       finishStroke,
       dropStroke,
+      restoreUnder,
     };
   }
 
-  const board = createSurface(document.getElementById("board"));
-  const palette = createSurface(document.getElementById("palette-board"));
+  // --- Keeping the picture -----------------------------------------------
+
+  // Both surfaces are saved and put back on the next visit: the drawing, because
+  // a child who closes the tab should not lose it, and the palette, because the
+  // colours mixed on it took as much work as the picture did.
+  //
+  // IndexedDB rather than localStorage, which is where every other setting here
+  // lives. localStorage holds strings, so a PNG would have to go in as base64 —
+  // a third larger before UTF-16 doubles it again — against a five-megabyte
+  // quota, and toDataURL would block the main thread to produce it. This takes
+  // the Blob as it comes off the canvas, writes it asynchronously, and is not
+  // measured in megabytes.
+  //
+  // Everything in here fails silently. Storage can be unavailable (private
+  // browsing), full, or simply refused, and none of that is a reason to stop a
+  // child drawing.
+  const DB_NAME = "colour";
+  const DB_STORE = "surfaces";
+  const SAVE_IDLE = 500; // ms of stillness before a save is worth making
+
+  const surfaces = new Map(); // store key -> surface
+  const saveTimers = new Map();
+
+  // Silent for the child, but not silent for whoever is debugging this on a
+  // real phone: storage that quietly does nothing is indistinguishable from
+  // storage that is broken, and one of those is worth knowing about.
+  const storageFailed = (what) => (err) =>
+    console.warn("colour: could not " + what, err || "(no reason given)");
+
+  let dbOpen = null;
+  function withStore(mode, fn) {
+    try {
+      if (!self.indexedDB) return Promise.reject();
+      if (!dbOpen) {
+        dbOpen = new Promise((resolve, reject) => {
+          const req = indexedDB.open(DB_NAME, 1);
+          req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+          req.onblocked = () => reject();
+        });
+      }
+      return dbOpen.then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, mode);
+            const req = fn(tx.objectStore(DB_STORE));
+            tx.oncomplete = () => resolve(req && req.result);
+            tx.onerror = tx.onabort = () => reject(tx.error);
+          })
+      );
+    } catch (_) {
+      return Promise.reject();
+    }
+  }
+
+  // Throttled from the front, not debounced. A pure debounce writes only after
+  // the drawing stops, which is the one moment a phone is least likely to give
+  // us: a child who draws a line and immediately switches away would lose it,
+  // because backgrounding can freeze the page before a queued write runs. So the
+  // first settle after a quiet spell is written at once, and only the ones that
+  // follow inside the window wait — a hand drawing a long line still costs one
+  // write per window rather than one per stroke.
+  const lastSaved = new Map(); // store key -> when a write was last started
+
+  function surfaceSettled(key) {
+    if (!key) return;
+    const since = performance.now() - (lastSaved.get(key) || -Infinity);
+    if (since >= SAVE_IDLE) {
+      saveSurface(key);
+    } else if (!saveTimers.has(key)) {
+      saveTimers.set(key, setTimeout(() => saveSurface(key), SAVE_IDLE - since));
+    }
+  }
+
+  function saveSurface(key) {
+    clearTimeout(saveTimers.get(key));
+    saveTimers.delete(key);
+    const sf = surfaces.get(key);
+    if (!sf) return;
+    lastSaved.set(key, performance.now());
+    try {
+      sf.canvas.toBlob((blob) => {
+        if (!blob) return storageFailed("encode the " + key)();
+        withStore("readwrite", (s) => s.put(blob, key)).catch(
+          storageFailed("save the " + key)
+        );
+      }, "image/png");
+    } catch (err) {
+      storageFailed("save the " + key)(err);
+    }
+  }
+
+  // A tab can be closed inside the idle window. Take the chance to write what is
+  // pending — a browser tearing the page down is under no obligation to wait for
+  // it, but backgrounding a phone usually is.
+  function flushSaves() {
+    for (const key of [...saveTimers.keys()]) saveSurface(key);
+  }
+  window.addEventListener("pagehide", flushSaves);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushSaves();
+  });
+
+  function decodeBlob(blob) {
+    if (self.createImageBitmap) return createImageBitmap(blob);
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject();
+      };
+      img.src = url;
+    });
+  }
+
+  function restoreSurfaces() {
+    for (const [key, sf] of surfaces) {
+      withStore("readonly", (s) => s.get(key))
+        .then((blob) => (blob ? decodeBlob(blob) : null))
+        .then((img) => {
+          if (img) sf.restoreUnder(img);
+        })
+        .catch(storageFailed("bring back the " + key));
+    }
+  }
+
+  const board = createSurface(document.getElementById("board"), "board");
+  const palette = createSurface(
+    document.getElementById("palette-board"),
+    "palette"
+  );
+  surfaces.set("board", board);
+  surfaces.set("palette", palette);
 
   // --- Tool selection ----------------------------------------------------
 
@@ -821,6 +985,12 @@
   // button, because the colour swatches are thrown away and rebuilt every time
   // the paint kind changes.
   document.addEventListener("click", (e) => {
+    // Keyboard and assistive tech only. Cancelling pointerdown stops the
+    // compatibility mouse events but never the click, so a finger sends one on
+    // top of the press the router has already acted on — which for a toggle like
+    // the eyedropper meant every tap turned it on and straight back off. A click
+    // that came from a keyboard or a screen reader carries no click count.
+    if (e.detail !== 0) return;
     const btn = e.target.closest && e.target.closest(".swatch");
     if (!btn) return;
     selectSwatch(btn);
@@ -1845,4 +2015,8 @@
   window.addEventListener("resize", relayout);
   window.addEventListener("orientationchange", relayout);
   relayout();
+  // After relayout, which is what gives both canvases their pixel buffers —
+  // restoring into a canvas that is about to be resized would throw the bitmap
+  // away again.
+  restoreSurfaces();
 })();
