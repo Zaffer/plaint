@@ -49,6 +49,11 @@
    pictures do not, because a canvas is a Blob and localStorage only holds
    strings. See "Keeping the picture".
 
+   Pages: the address is the filing system. Put a name on the end of it and that
+   is a new sheet of paper; come back to the same address and your drawing is
+   still on it. The menu lists the ones you have visited, and can add the next
+   in a numbered family — /house, /house_1, /house_2. See "Pages".
+
    Multi-touch: every pointer gets its own stroke, so a whole hand — or two
    children — can draw at once, each finger keeping the colour and size it
    started with. A pen takes over when it lands: touches are ignored while it
@@ -509,7 +514,10 @@
       snapCtx.lineJoin = "round";
     }
 
-    function clear() {
+    // `save` is false in one place only: turning to another page, where the
+    // wipe is making room rather than throwing anything away. Writing that
+    // empty frame would blank the very page we are about to bring back.
+    function clear(save = true) {
       dropAllStrokes();
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -517,7 +525,7 @@
       ctx.restore();
       // Starting over has to reach the saved copy too, or the picture would be
       // back on the next visit.
-      surfaceSettled(storeKey);
+      if (save) surfaceSettled(storeKey);
     }
 
     // Put a saved bitmap back, *underneath* whatever is on the canvas already.
@@ -824,10 +832,15 @@
     const sf = surfaces.get(key);
     if (!sf) return;
     lastSaved.set(key, performance.now());
+    // Which page's slot this is, resolved now rather than in the callback: the
+    // encoder is allowed to still be running when you turn to another page, and
+    // these pixels belong to the page that asked for them. (toBlob copies the
+    // bitmap synchronously, so the pixels themselves are already the right ones.)
+    const slot = dbKey(key);
     try {
       sf.canvas.toBlob((blob) => {
         if (!blob) return storageFailed("encode the " + key)();
-        withStore("readwrite", (s) => s.put(blob, key)).catch(
+        withStore("readwrite", (s) => s.put(blob, slot)).catch(
           storageFailed("save the " + key)
         );
       }, "image/png");
@@ -864,15 +877,23 @@
     });
   }
 
+  function restoreSurface(key) {
+    const sf = surfaces.get(key);
+    if (!sf) return;
+    const slot = dbKey(key);
+    withStore("readonly", (s) => s.get(slot))
+      .then((blob) => (blob ? decodeBlob(blob) : null))
+      .then((img) => {
+        // Reading and decoding take a moment, and a quick hand down the page
+        // list can turn two more pages inside it. Dropping this picture onto
+        // whichever page happens to be open now would be worse than nothing.
+        if (img && dbKey(key) === slot) sf.restoreUnder(img);
+      })
+      .catch(storageFailed("bring back the " + key));
+  }
+
   function restoreSurfaces() {
-    for (const [key, sf] of surfaces) {
-      withStore("readonly", (s) => s.get(key))
-        .then((blob) => (blob ? decodeBlob(blob) : null))
-        .then((img) => {
-          if (img) sf.restoreUnder(img);
-        })
-        .catch(storageFailed("bring back the " + key));
-    }
+    for (const key of surfaces.keys()) restoreSurface(key);
   }
 
   const board = createSurface(document.getElementById("board"), "board");
@@ -882,6 +903,217 @@
   );
   surfaces.set("board", board);
   surfaces.set("palette", palette);
+
+  // --- Pages ---------------------------------------------------------------
+  //
+  // A page is an address and nothing else. Type a name on the end of the URL
+  // and that page exists; come back to it and the drawing is still there. There
+  // is no New Page dialogue and no files to name or tidy, because the address
+  // bar is already both of those things — and a page can be shared, bookmarked
+  // or put on a home screen the way any other address can.
+  //
+  // The root page keeps the bare "board" key it has always had, so the picture
+  // that was saved before pages existed is simply the picture on "/" now.
+  //
+  // Names are a single path segment, and the only structure between them is a
+  // number after an underscore: /house, /house_1, /house_2 are one family, and
+  // Add page hands you the next one along.
+
+  // Where the app is served from — "/" locally, "/colour-webapp/" on GitHub
+  // Pages. Read off this script's own URL rather than assumed, so the same
+  // files work at whatever depth they are published.
+  const APP_ROOT = new URL(
+    ".",
+    (document.currentScript && document.currentScript.src) || location.href
+  ).pathname;
+
+  const PAGES_KEY = "colour-pages";
+  const NAME_MAX = 48;
+  const SUFFIX = /^(.*)_(\d+)$/;
+
+  // One segment, no slashes, and nothing that means "somewhere else".
+  function cleanName(raw) {
+    let s = String(raw == null ? "" : raw).trim();
+    s = s.split(/[/?#]/)[0];
+    if (s === "index.html" || s === "404.html" || /^\.+$/.test(s)) s = "";
+    return s.slice(0, NAME_MAX);
+  }
+
+  function pageFromUrl() {
+    let p = location.pathname;
+    try {
+      p = decodeURIComponent(p);
+    } catch (_) {}
+    p =
+      p.indexOf(APP_ROOT) === 0
+        ? p.slice(APP_ROOT.length)
+        : p.replace(/^\/+/, "");
+    return cleanName(p);
+  }
+
+  const urlFor = (id) => APP_ROOT + (id ? encodeURIComponent(id) : "");
+  // The root has no name of its own, so it wears the address it answers to.
+  const pageLabel = (id) => id || "/";
+
+  // A page's base name and its number: "house_2" is the third of the house
+  // family, and a page with no suffix is number nought of its own.
+  function familyOf(id) {
+    const m = SUFFIX.exec(id);
+    return m ? [m[1], Number(m[2])] : [id, 0];
+  }
+
+  // Families together, in order within a family. The root's base name is the
+  // empty string, which sorts before every other, so home stays at the top.
+  function comparePages(a, b) {
+    const [ba, na] = familyOf(a);
+    const [bb, nb] = familyOf(b);
+    if (ba !== bb) return ba < bb ? -1 : 1;
+    return na - nb;
+  }
+
+  let page = "";
+  let pages = [""];
+
+  function loadPages() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(PAGES_KEY) || "[]");
+      if (Array.isArray(raw)) pages = raw.map(cleanName);
+    } catch (_) {}
+    pages = [...new Set(pages)];
+    if (!pages.includes("")) pages.unshift(""); // home is always there
+  }
+
+  function savePages() {
+    try {
+      localStorage.setItem(PAGES_KEY, JSON.stringify(pages));
+    } catch (_) {}
+  }
+
+  // Visiting is creating. Nothing else brings a page into being.
+  function remember(id) {
+    if (pages.includes(id)) return;
+    pages.push(id);
+    savePages();
+  }
+
+  // Which slot in the database a surface's picture lives in. Only the board
+  // moves with the page: the palette is shared, one palette to many sheets of
+  // paper, so a colour mixed on one page is still mixed on the next.
+  function dbKey(key) {
+    return key === "board" && page ? "board:" + page : key;
+  }
+
+  const pagesBox = document.getElementById("menu-pages");
+  const delPageBtn = document.getElementById("btn-del-page");
+
+  function renderPagesMenu() {
+    pagesBox.textContent = "";
+    for (const id of [...pages].sort(comparePages)) {
+      const b = document.createElement("button");
+      b.className = "menu-set menu-page";
+      b.dataset.page = id;
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", String(id === page));
+      b.textContent = pageLabel(id);
+      b.addEventListener("click", () => goTo(id));
+      pagesBox.appendChild(b);
+    }
+    // Home is the front door: it can be cleared, which is what Start over is
+    // for, but it cannot be taken away — its address would still answer.
+    delPageBtn.disabled = !page;
+  }
+
+  // Turning a page is a save, a wipe and a restore. Nothing else on screen
+  // moves — the tools, the palette and the paper all stay put — so it reads as
+  // turning over a sheet rather than loading a document.
+  function goTo(id, opts) {
+    id = cleanName(id);
+    const push = !(opts && opts.push === false);
+    const keep = !(opts && opts.keep === false);
+    openMenu(false);
+    if (id === page) return;
+
+    if (keep) {
+      board.flushMix(); // the frame a still-moving finger hasn't composited yet
+      saveSurface("board"); // the outgoing page, keyed before `page` moves
+    } else {
+      // Nothing here is worth keeping, but the wipe below must not turn into a
+      // write either: hold the throttle shut so it can only queue, never fire.
+      lastSaved.set("board", performance.now());
+    }
+    board.clear(false);
+    // Whatever that queued belongs to no page at all now.
+    clearTimeout(saveTimers.get("board"));
+    saveTimers.delete("board");
+
+    page = id;
+    remember(page);
+    document.title = page ? "Colour · " + page : "Colour";
+    if (push) {
+      try {
+        history.pushState({ page }, "", urlFor(page));
+      } catch (_) {}
+    }
+    restoreSurface("board");
+    renderPagesMenu();
+  }
+
+  // The next number in this page's family: house → house_1 → house_2. Home's
+  // family is the unnamed one, so its first child is plain "_1". Counted from
+  // the highest that exists rather than the length of the family, so deleting
+  // the middle of a run never hands out a name that is already taken.
+  function addPage() {
+    const [base] = familyOf(page);
+    let max = 0;
+    for (const p of pages) {
+      const [b, n] = familyOf(p);
+      if (b === base && n > max) max = n;
+    }
+    goTo(base + "_" + (max + 1));
+  }
+
+  function deletePage() {
+    if (!page) return;
+    const gone = page;
+    // One deliberate confirm, the same as Start over: a page is a drawing plus
+    // the address it lived at, and neither comes back.
+    if (!confirm('Delete the page "' + gone + '"? Its drawing goes with it.'))
+      return;
+    const [base] = familyOf(gone);
+    const family = pages.filter((p) => familyOf(p)[0] === base).sort(comparePages);
+    const i = family.indexOf(gone);
+    // Back one in the family, or forward if this was the first of them, or home
+    // if it was the only one left.
+    const next =
+      i > 0 ? family[i - 1] : family[i + 1] !== undefined ? family[i + 1] : "";
+
+    pages = pages.filter((p) => p !== gone);
+    savePages();
+    goTo(next, { keep: false });
+    // After the move, so the save that goTo skips cannot race the delete.
+    withStore("readwrite", (s) => s.delete("board:" + gone)).catch(
+      storageFailed("delete the page " + gone)
+    );
+  }
+
+  loadPages();
+  page = pageFromUrl();
+  remember(page);
+  document.title = page ? "Colour · " + page : "Colour";
+  // Settle on the canonical address for this page, so /index.html and a name
+  // that needed cleaning both leave one history entry rather than two forms of
+  // the same one.
+  try {
+    history.replaceState({ page }, "", urlFor(page) + location.hash);
+  } catch (_) {}
+  renderPagesMenu();
+
+  document.getElementById("btn-add-page").addEventListener("click", addPage);
+  delPageBtn.addEventListener("click", deletePage);
+  // Back and Forward turn pages the same way the menu does.
+  window.addEventListener("popstate", () =>
+    goTo(pageFromUrl(), { push: false })
+  );
 
   // --- Tool selection ----------------------------------------------------
 
@@ -1886,7 +2118,9 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "my-drawing.png";
+      // Named after the page, so a folder of downloads keeps them apart rather
+      // than piling up as my-drawing (1).png.
+      a.download = (page || "my-drawing") + ".png";
       a.click();
       URL.revokeObjectURL(url);
     }, "image/png");

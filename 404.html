@@ -1,6 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- ===== GENERATED: this file is index.html plus the script below. =====
+       GitHub Pages serves 404.html for any address with no file behind it,
+       which is how /house can be a page without /house.html existing. Rebuild
+       it after editing index.html:
+
+           python3 make404.py
+
+       Nothing else in here should be edited by hand. -->
+  <script>
+    // Served for an address that has no file, so the last segment is a page
+    // name rather than a folder. A trailing slash would make every relative
+    // asset below resolve one level too deep and the app would arrive with no
+    // stylesheet and no script — so drop it before the browser starts fetching.
+    if (location.pathname.length > 1 && location.pathname.endsWith("/")) {
+      location.replace(
+        location.pathname.slice(0, -1) + location.search + location.hash
+      );
+    }
+  </script>
   <meta charset="UTF-8" />
   <meta
     name="viewport"

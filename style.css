@@ -171,6 +171,17 @@ body {
   background: rgba(128, 128, 128, 0.18);
 }
 
+/* Delete page on the home page: home answers to its address whether or not we
+   list it, so there is nothing there to delete. */
+.menu-item:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.menu-item:disabled:active {
+  background: transparent;
+}
+
 .menu-item--danger {
   color: var(--danger);
 }
@@ -193,10 +204,20 @@ body {
   padding: 2px 18px 4px;
 }
 
-.menu-sets {
+.menu-sets,
+.menu-pages {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* A page row is a name and nothing else, so it needs the truncation a colourway
+   row — which is a word and a fixed strip of dots — never does. */
+.menu-page {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Shorter than a menu item, and wearing its own pigments: a colourway is a set
