@@ -2076,7 +2076,9 @@
   const themeMeta = document.getElementById("theme-color");
   function applyTheme(dark) {
     document.body.classList.toggle("dark", dark);
-    darkBtn.textContent = dark ? "☀️ Light mode" : "🌙 Dark mode";
+    // The mode you are in, not the one the press would take you to — the same
+    // way Mixing below it reads out what is in force rather than what is next.
+    darkBtn.textContent = dark ? "🌙 Dark mode" : "☀️ Light mode";
     applyContrast(dark);
     // Literals, not read from the CSS: keep them in step with --bg by hand.
     themeMeta.setAttribute("content", dark ? "#0e0f11" : "#f5f1e9");
