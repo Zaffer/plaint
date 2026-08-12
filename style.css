@@ -96,8 +96,13 @@ body {
 /* --- Settings (top-left gear + menu) ------------------------------------ */
 
 .settings {
+  /* Named, because the menu below has to subtract both of these from the
+     viewport to know how tall it is allowed to be. Inherited, so the two can
+     never drift apart. */
+  --settings-top: calc(env(safe-area-inset-top, 0px) + 16px);
+  --menu-drop: 66px; /* the menu hangs this far below the gear */
   position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 16px);
+  top: var(--settings-top);
   left: calc(env(safe-area-inset-left, 0px) + 16px);
   /* Above the toolbar, not level with it: the menu is long enough to reach the
      panel, and a lifted panel comes up to meet it. Level pegging let the toolbar
@@ -130,7 +135,7 @@ body {
 
 .settings-menu {
   position: absolute;
-  top: 66px;
+  top: var(--menu-drop);
   left: 0;
   min-width: 200px;
   background: var(--panel);
@@ -140,11 +145,28 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  /* Seven colourways make this taller than a short screen in landscape. Scroll
-     inside rather than run off the bottom; the touchmove guard already lets
-     gestures through inside #settings, and `contain` stops a flick at the end
-     of the list carrying on into the page behind. */
-  max-height: calc(100vh - 96px);
+  /* Seven colourways and a list of pages make this taller than most phones.
+     Scroll inside rather than run off the bottom; the touchmove guard already
+     lets gestures through inside #settings, and `contain` stops a flick at the
+     end of the list carrying on into the page behind.
+
+     Everything between the top of the screen and the bottom of the menu has to
+     come off, or the last item or two end up under the edge:
+       --settings-top   the gear's own offset, notch included
+       --menu-drop      how far the menu hangs below the gear
+       inset-bottom     the home indicator or gesture bar
+       16px             so it doesn't sit flush against the edge
+     dvh rather than vh: on a phone `vh` is the *large* viewport, measured as if
+     the address bar were hidden, so a menu sized in vh runs underneath it. The
+     vh line above is the fallback for anything too old to know dvh. */
+  max-height: calc(
+    100vh - var(--settings-top) - var(--menu-drop) -
+      env(safe-area-inset-bottom, 0px) - 16px
+  );
+  max-height: calc(
+    100dvh - var(--settings-top) - var(--menu-drop) -
+      env(safe-area-inset-bottom, 0px) - 16px
+  );
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-backdrop-filter: blur(8px);

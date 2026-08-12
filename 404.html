@@ -52,6 +52,7 @@
     <div id="settings-menu" class="settings-menu" hidden>
       <button id="btn-dark" class="menu-item">🌙 Dark mode</button>
       <button id="btn-fullscreen" class="menu-item">🖥️ Fullscreen</button>
+      <button id="btn-save" class="menu-item">💾 Save picture</button>
 
       <div class="menu-sep" aria-hidden="true"></div>
       <div class="menu-cap" aria-hidden="true">Colours</div>
@@ -71,10 +72,15 @@
       <div id="menu-pages" class="menu-pages" role="radiogroup" aria-label="Pages"></div>
       <button id="btn-add-page" class="menu-item">➕ Add page</button>
       <button id="btn-del-page" class="menu-item menu-item--danger">❌ Delete page</button>
+
+      <!-- Shelved for now: pages cover the want it served, since a clean sheet
+           is Add page rather than emptying this one. The trailing separator goes
+           with it, or the menu ends on a rule with nothing under it. Its click
+           handler in app.js is commented out to match — restore both together.
       <div class="menu-sep" aria-hidden="true"></div>
 
-      <button id="btn-save" class="menu-item">💾 Save picture</button>
       <button id="btn-clear" class="menu-item menu-item--danger">🗑️ Start over</button>
+      -->
     </div>
   </div>
 

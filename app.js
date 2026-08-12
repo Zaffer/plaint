@@ -2126,18 +2126,22 @@
     }, "image/png");
   });
 
-  document.getElementById("btn-clear").addEventListener("click", () => {
-    openMenu(false);
-    // One deliberate confirm so a picture can't vanish by accident.
-    if (confirm("Start over? This clears your drawing.")) {
-      // The palette goes with it: otherwise yesterday's mixed mud would be left
-      // on it with no way to scrape it off. Both clears drop their live strokes
-      // first — a finger still down would composite its snapshot, the picture we
-      // just cleared, straight back onto the paper.
-      board.clear();
-      palette.clear();
-    }
-  });
+  // Start over, shelved along with its button in index.html — pages cover the
+  // want it served: a fresh sheet is now Add page rather than emptying this one.
+  // Put both back together, or this throws on a button that isn't there.
+  //
+  // document.getElementById("btn-clear").addEventListener("click", () => {
+  //   openMenu(false);
+  //   // One deliberate confirm so a picture can't vanish by accident.
+  //   if (confirm("Start over? This clears your drawing.")) {
+  //     // The palette goes with it: otherwise yesterday's mixed mud would be left
+  //     // on it with no way to scrape it off. Both clears drop their live strokes
+  //     // first — a finger still down would composite its snapshot, the picture we
+  //     // just cleared, straight back onto the paper.
+  //     board.clear();
+  //     palette.clear();
+  //   }
+  // });
 
   // --- Guard rails: stop the browser from hijacking touches --------------
   // With touch-action:none most gestures are already dead; these catch the
