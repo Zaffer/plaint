@@ -11,6 +11,25 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Plaint" />
   <title>Plaint</title>
+  <!-- Link previews. Scrapers read this file as it is, running nothing, so
+       the card a shared link shows is decided right here. The image is the
+       launcher icon, and it is the one address in the app that must be
+       absolute — a crawler cannot be handed a relative URL. -->
+  <meta
+    name="description"
+    content="A plain painting web app for kids, artists, and doodlers."
+  />
+  <meta property="og:title" content="Plaint" />
+  <meta
+    property="og:description"
+    content="A plain painting web app for kids, artists, and doodlers."
+  />
+  <meta
+    property="og:image"
+    content="https://zaffer.github.io/colour-webapp/icons/icon-512.png"
+  />
+  <meta property="og:url" content="https://zaffer.github.io/colour-webapp/" />
+  <meta name="twitter:card" content="summary" />
   <!-- Installable app: the manifest gives it a name and icons on a home
        screen, and sw.js — registered from app.js — keeps a copy of everything
        so it opens with no network. -->

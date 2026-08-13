@@ -1,7 +1,7 @@
 {
   "name": "Plaint",
   "short_name": "Plaint",
-  "description": "A plain painting web app.",
+  "description": "A plain painting web app for kids, artists, and doodlers.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
