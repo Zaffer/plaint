@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   Colour — drawing engine.
+   Plaint — drawing engine.
 
    Design goals, in order:
      1. Never break, whatever a small child taps or how many fingers land.
@@ -1048,7 +1048,7 @@
 
     page = id;
     remember(page);
-    document.title = page ? "Colour · " + page : "Colour";
+    document.title = page ? "Plaint · " + page : "Plaint";
     if (push) {
       try {
         history.pushState({ page }, "", urlFor(page));
@@ -1099,7 +1099,7 @@
   loadPages();
   page = pageFromUrl();
   remember(page);
-  document.title = page ? "Colour · " + page : "Colour";
+  document.title = page ? "Plaint · " + page : "Plaint";
   // Settle on the canonical address for this page, so /index.html and a name
   // that needed cleaning both leave one history entry rather than two forms of
   // the same one.
@@ -2259,4 +2259,12 @@
   // restoring into a canvas that is about to be resized would throw the bitmap
   // away again.
   restoreSurfaces();
+
+  // The service worker (see sw.js) is what lets the app be installed from the
+  // browser and opened with no network. Registered off APP_ROOT so its scope
+  // covers every page, wherever the app is served from; and last, because the
+  // app owes it nothing — a browser without it just stays a website.
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register(APP_ROOT + "sw.js").catch(() => {});
+  }
 })();

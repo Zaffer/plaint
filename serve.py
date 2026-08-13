@@ -51,7 +51,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
-        print(f"colour → http://localhost:{PORT}/")
+        print(f"plaint → http://localhost:{PORT}/")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
