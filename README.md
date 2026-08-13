@@ -12,6 +12,8 @@ Draw with a finger, a pen, or the mouse. Many fingers can draw at the same time.
 - Drag the slider to set the pen size.
 - Pull the toolbar down to show the mixing palette behind it.
 - Use the menu (top left) to set the colours, the theme, and the pages.
+- Push the space bar to show or hide the toolbar.
+- Push Ctrl and the space bar to show or hide the mixing palette.
 - Put a name at the end of the address to make a new page. Example: `/house`.
   The app keeps the picture for each page.
 

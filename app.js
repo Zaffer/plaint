@@ -2071,6 +2071,22 @@
     if (!settings.contains(e.target)) openMenu(false);
   });
 
+  // Space works the toolbar from the keyboard and Ctrl+Space the palette —
+  // the same two toggles the handle gives a mouse as left- and right-click.
+  // Not while a button or input has focus, though: there Space is how a
+  // keyboard presses the thing, and pressing must keep working. Pointer
+  // presses never leave focus behind (onPointerDown cancels them), so for
+  // everyone else this fires from anywhere.
+  document.addEventListener("keydown", (e) => {
+    if ((e.key !== " " && e.code !== "Space") || e.repeat) return;
+    if (e.altKey || e.metaKey) return;
+    const t = e.target;
+    if (t instanceof Element && t.closest("button, input")) return;
+    e.preventDefault();
+    if (e.ctrlKey) rightClickHandle();
+    else clickHandle();
+  });
+
   // Dark mode — flips the CSS paper + chrome instantly, and is remembered.
   const darkBtn = document.getElementById("btn-dark");
   const themeMeta = document.getElementById("theme-color");
