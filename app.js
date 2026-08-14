@@ -954,6 +954,8 @@
   const urlFor = (id) => APP_ROOT + (id ? encodeURIComponent(id) : "");
   // The root has no name of its own, so it wears the address it answers to.
   const pageLabel = (id) => id || "/";
+  // In one place because three call sites had already drifted apart once.
+  const titleFor = (id) => (id ? "Plaint · " + id : "Plaint");
 
   // A page's base name and its number: "house_2" is the third of the house
   // family, and a page with no suffix is number nought of its own.
@@ -1005,6 +1007,7 @@
 
   const pagesBox = document.getElementById("menu-pages");
   const delPageBtn = document.getElementById("btn-del-page");
+  const renamePageBtn = document.getElementById("btn-rename-page");
 
   function renderPagesMenu() {
     pagesBox.textContent = "";
@@ -1018,9 +1021,10 @@
       b.addEventListener("click", () => goTo(id));
       pagesBox.appendChild(b);
     }
-    // Home is the front door: it can be cleared, which is what Start over is
-    // for, but it cannot be taken away — its address would still answer.
+    // Home is the front door: its address answers whether or not we list it, so
+    // there is nothing there to delete, and no name on it to change.
     delPageBtn.disabled = !page;
+    renamePageBtn.disabled = !page;
   }
 
   // Turning a page is a save, a wipe and a restore. Nothing else on screen
@@ -1048,7 +1052,7 @@
 
     page = id;
     remember(page);
-    document.title = page ? "Plaint · " + page : "Plaint";
+    document.title = titleFor(page);
     if (push) {
       try {
         history.pushState({ page }, "", urlFor(page));
@@ -1070,6 +1074,46 @@
       if (b === base && n > max) max = n;
     }
     goTo(base + "_" + (max + 1));
+  }
+
+  // Installed to a home screen there is no address bar to type in, so the name
+  // has to be editable from inside the app or a page is stuck with whatever it
+  // was born as. Add page then Rename is the whole of "new drawing called X".
+  //
+  // prompt() rather than a dialogue of our own: it is one line, it brings up the
+  // keyboard, and it is the same borrowed furniture Delete page already uses.
+  function renamePage() {
+    if (!page) return;
+    const from = page;
+    const typed = prompt("Name for this page", from);
+    if (typed === null) return; // cancelled
+    const to = cleanName(typed);
+    if (!to) return alert("A page needs a name.");
+    if (to === from) return;
+    if (pages.includes(to)) {
+      return alert('There is already a page called "' + to + '".');
+    }
+
+    pages = pages.map((p) => (p === from ? to : p));
+    savePages();
+    page = to;
+    document.title = titleFor(to);
+    // Replace rather than push: this is the same page under a new name, and a
+    // Back that returned to the old address would only make a blank page there.
+    try {
+      history.replaceState({ page }, "", urlFor(to));
+    } catch (_) {}
+
+    // The picture is already on the canvas and correct — so rather than copying
+    // a blob between keys, write what is on screen into the new slot and drop
+    // the old one. saveSurface reads the key now, and `page` has already moved.
+    clearTimeout(saveTimers.get("board"));
+    saveTimers.delete("board");
+    saveSurface("board");
+    withStore("readwrite", (s) => s.delete("board:" + from)).catch(
+      storageFailed("tidy away the old name " + from)
+    );
+    renderPagesMenu();
   }
 
   function deletePage() {
@@ -1099,7 +1143,7 @@
   loadPages();
   page = pageFromUrl();
   remember(page);
-  document.title = page ? "Plaint · " + page : "Plaint";
+  document.title = titleFor(page);
   // Settle on the canonical address for this page, so /index.html and a name
   // that needed cleaning both leave one history entry rather than two forms of
   // the same one.
@@ -1109,6 +1153,12 @@
   renderPagesMenu();
 
   document.getElementById("btn-add-page").addEventListener("click", addPage);
+  renamePageBtn.addEventListener("click", () => {
+    // Out of the way first: on a phone the menu would otherwise sit behind the
+    // keyboard the prompt brings up.
+    openMenu(false);
+    renamePage();
+  });
   delPageBtn.addEventListener("click", deletePage);
   // Back and Forward turn pages the same way the menu does.
   window.addEventListener("popstate", () =>
